@@ -19,64 +19,6 @@
 <script src="{{url_for('static', filename='js/jquery-confirm.min.js')}}"></script>
 <script src="{{url_for('static', filename='js/screen.js')}}?ver=3"></script>
 
-<script>
-// ====== Audio Integration ======
-let audioCtx = null;
-let playing = false;
-
-async function fetchAudio() {
-    if (!audioCtx) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    try {
-        const resp = await fetch("/audiofeed/", {method: "POST"});
-        const data = await resp.json();
-        if (data[0]) {
-            const base64 = data[1];
-            const raw = atob(base64);
-            const buffer = new ArrayBuffer(raw.length);
-            const view = new Uint8Array(buffer);
-            for (let i = 0; i < raw.length; i++) {
-                view[i] = raw.charCodeAt(i);
-            }
-
-            // our PCM is 16-bit little endian, stereo
-            const numChannels = 2;
-            const sampleRate = 44100;
-            const frameCount = view.length / 2 / numChannels;
-            const audioBuffer = audioCtx.createBuffer(numChannels, frameCount, sampleRate);
-
-            // fill channel data
-            for (let ch = 0; ch < numChannels; ch++) {
-                const channelData = audioBuffer.getChannelData(ch);
-                for (let i = 0; i < frameCount; i++) {
-                    // 16-bit little endian
-                    const idx = (i * numChannels + ch) * 2;
-                    const sample = (view[idx] | (view[idx+1] << 8));
-                    // signed int16 -> float (-1.0, 1.0)
-                    channelData[i] = sample < 32768 ? sample / 32768 : (sample - 65536) / 32768;
-                }
-            }
-
-            const source = audioCtx.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(audioCtx.destination);
-            source.start();
-        }
-    } catch(e) {
-        console.error("Audio fetch error:", e);
-    }
-    setTimeout(fetchAudio, 100); // poll ~10x per second
-}
-
-// start audio only after user gesture (browser policy)
-document.addEventListener("click", () => {
-    if (!playing) {
-        playing = true;
-        fetchAudio();
-    }
-});
-</script>
 {% endblock %}
 
 {% block body_attribs %}

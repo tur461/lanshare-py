@@ -45,11 +45,14 @@ class Screen:
             im_converted.save(
                 self.screenfile, format="jpeg", quality=75, progressive=True
             )
-            self.screenbuf = base64.b64encode(self.screenfile.getvalue()).decode()
+            self.screenbuf = base64.b64encode(self.screenfile.getvalue())
             time.sleep(1.0 / self.FPS)
 
     def gen(self):
-        return self.screenbuf or ""
+        if ver == 2:
+            return self.screenbuf
+        elif ver == 3:
+            return self.screenbuf.decode()
 
 class AudioCapture:
     def __init__(self):
@@ -106,7 +109,7 @@ class AudioCapture:
         while self.running:
             try:
                 data = self.stream.read(self.CHUNK, exception_on_overflow=False)
-                self.que.append(base64.b64encode(data))
+                self.que.append(data)
             except Exception as e:
                 print("[AudioCapture] Error reading audio:", e)
                 time.sleep(0.05)
@@ -115,9 +118,10 @@ class AudioCapture:
     def gen(self):
         chunks = []
         while self.que:
-            chunk = self.que.popleft()
-            chunks.append(chunk.decode() if isinstance(chunk, bytes) else chunk)
-        return "".join(chunks) if chunks else ""
+            chunks.append(self.que.popleft())
+        rawData = b''.join(chunks)
+        print('audio capture len:', len(rawData))
+        return base64.b64encode(rawData).decode('utf-8')
 
 
 # Instantiate both
