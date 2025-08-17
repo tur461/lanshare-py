@@ -1,6 +1,6 @@
 import threading, time, base64, sys, pyaudio
 
-class AudioCapture():
+class AudioCapture:
     def __init__(self):
         self.RATE = 44100
         self.CHUNK = 1024
@@ -9,21 +9,19 @@ class AudioCapture():
         self.audio = pyaudio.PyAudio()
         self.buffer = b""
 
-        # Select default output device for loopback capture
-        # On Windows: use WASAPI loopback
+        self.device_index = None
         if sys.platform == "win32":
-            wasapi_info = None
+            # Try to find WASAPI loopback device
             for i in range(self.audio.get_device_count()):
                 dev = self.audio.get_device_info_by_index(i)
-                if (dev.get("name").lower().find("loopback") != -1):
-                    wasapi_info = i
+                if "loopback" in dev.get("name").lower():
+                    self.device_index = i
                     break
-            if wasapi_info is None:
-                raise RuntimeError("No WASAPI loopback device found! Enable 'Stereo Mix' or use a virtual audio driver.")
-            self.device_index = wasapi_info
-        else:
-            # macOS/Linux -> user must select virtual device (BlackHole, Soundflower, Pulse monitor)
-            self.device_index = None  # default device, may need manual config
+
+            if self.device_index is None:
+                print("[WARN] No WASAPI loopback device found! Falling back to default input (microphone).")
+                # fallback to default mic
+                self.device_index = None  
 
         self.stream = self.audio.open(format=self.FORMAT,
                                       channels=self.CHANNELS,
@@ -37,20 +35,30 @@ class AudioCapture():
 
     def __del__(self):
         self.running = False
-        self.stream.stop_stream()
-        self.stream.close()
-        self.audio.terminate()
+        if hasattr(self, "stream"):  # safe cleanup
+            try:
+                self.stream.stop_stream()
+                self.stream.close()
+            except Exception:
+                pass
+        if hasattr(self, "audio"):
+            try:
+                self.audio.terminate()
+            except Exception:
+                pass
 
     def record(self):
         while self.running:
-            data = self.stream.read(self.CHUNK, exception_on_overflow=False)
-            self.buffer = base64.b64encode(data)
-            time.sleep(0.01)  # small sleep to reduce CPU usage
+            try:
+                data = self.stream.read(self.CHUNK, exception_on_overflow=False)
+                self.buffer = base64.b64encode(data)
+            except Exception as e:
+                print("[AudioCapture] Error reading audio:", e)
+                time.sleep(0.05)
+            time.sleep(0.01)
 
     def gen(self):
         """Return latest audio chunk (base64 encoded)"""
         if isinstance(self.buffer, bytes):
             return self.buffer.decode()
         return self.buffer
-
-audiolive = AudioCapture()
