@@ -1,4 +1,58 @@
-import threading, time, base64, sys, pyaudio
+# screenshare.py
+# Copyright (C) 2021  Qijun Gu
+# Modified to add PyAudio speaker/mic capture
+
+import threading, time, base64, sys
+import pyaudio
+
+ver = sys.version_info.major
+if ver == 2:
+    import StringIO as io
+elif ver == 3:
+    import io
+
+if sys.platform in ["win32", "darwin"]:
+    from PIL import ImageGrab as ig
+else:
+    import pyscreenshot as ig
+    bkend = "pygdk3"
+
+
+class Screen:
+    def __init__(self):
+        self.FPS = 10
+        self.screenbuf = ""
+        self.password = ""
+        if ver == 2:
+            self.screenfile = io.StringIO()
+        elif ver == 3:
+            self.screenfile = io.BytesIO()
+        threading.Thread(target=self.getframes, daemon=True).start()
+
+    def __del__(self):
+        self.screenfile.close()
+
+    def getframes(self):
+        while True:
+            if sys.platform in ["win32", "darwin"]:
+                im = ig.grab()
+            else:
+                im = ig.grab(childprocess=False, backend=bkend)
+            self.screenfile.seek(0)
+            self.screenfile.truncate(0)
+            im_converted = im.convert("RGB")
+            im_converted.save(
+                self.screenfile, format="jpeg", quality=75, progressive=True
+            )
+            self.screenbuf = base64.b64encode(self.screenfile.getvalue())
+            time.sleep(1.0 / self.FPS)
+
+    def gen(self):
+        if ver == 2:
+            return self.screenbuf
+        elif ver == 3:
+            return self.screenbuf.decode()
+
 
 class AudioCapture:
     def __init__(self):
@@ -19,23 +73,27 @@ class AudioCapture:
                     break
 
             if self.device_index is None:
-                print("[WARN] No WASAPI loopback device found! Falling back to default input (microphone).")
-                # fallback to default mic
-                self.device_index = None  
+                print(
+                    "[WARN] No WASAPI loopback device found! "
+                    "Falling back to default input (microphone)."
+                )
+                self.device_index = None  # fallback mic
 
-        self.stream = self.audio.open(format=self.FORMAT,
-                                      channels=self.CHANNELS,
-                                      rate=self.RATE,
-                                      input=True,
-                                      input_device_index=self.device_index,
-                                      frames_per_buffer=self.CHUNK)
+        self.stream = self.audio.open(
+            format=self.FORMAT,
+            channels=self.CHANNELS,
+            rate=self.RATE,
+            input=True,
+            input_device_index=self.device_index,
+            frames_per_buffer=self.CHUNK,
+        )
 
         self.running = True
         threading.Thread(target=self.record, daemon=True).start()
 
     def __del__(self):
         self.running = False
-        if hasattr(self, "stream"):  # safe cleanup
+        if hasattr(self, "stream"):
             try:
                 self.stream.stop_stream()
                 self.stream.close()
@@ -58,7 +116,11 @@ class AudioCapture:
             time.sleep(0.01)
 
     def gen(self):
-        """Return latest audio chunk (base64 encoded)"""
         if isinstance(self.buffer, bytes):
             return self.buffer.decode()
         return self.buffer
+
+
+# Instantiate both
+screenlive = Screen()
+audiolive = AudioCapture()

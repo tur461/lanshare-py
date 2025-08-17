@@ -1,22 +1,3 @@
-<!--
-Copyright (C) 2021  Qijun Gu
-
-This file is part of Screenshare.
-
-Screenshare is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-Screenshare is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with Screenshare. If not, see <https://www.gnu.org/licenses/>.
--->
-
 <!DOCTYPE html>
 {% extends "bootstrap/base.html" %}
 
@@ -30,15 +11,72 @@ along with Screenshare. If not, see <https://www.gnu.org/licenses/>.
 {% block styles %}
 {{super()}}
 <link rel="stylesheet" href="{{url_for('static', filename='css/jquery-confirm.min.css')}}"/>
-
 <link rel="stylesheet" href="{{url_for('static', filename='css/common.css')}}?ver=2"/>
 {% endblock %}
 
 {% block scripts %}
 {{super()}}
 <script src="{{url_for('static', filename='js/jquery-confirm.min.js')}}"></script>
-
 <script src="{{url_for('static', filename='js/screen.js')}}?ver=3"></script>
+
+<script>
+// ====== Audio Integration ======
+let audioCtx = null;
+let playing = false;
+
+async function fetchAudio() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    try {
+        const resp = await fetch("/audiofeed/", {method: "POST"});
+        const data = await resp.json();
+        if (data[0]) {
+            const base64 = data[1];
+            const raw = atob(base64);
+            const buffer = new ArrayBuffer(raw.length);
+            const view = new Uint8Array(buffer);
+            for (let i = 0; i < raw.length; i++) {
+                view[i] = raw.charCodeAt(i);
+            }
+
+            // our PCM is 16-bit little endian, stereo
+            const numChannels = 2;
+            const sampleRate = 44100;
+            const frameCount = view.length / 2 / numChannels;
+            const audioBuffer = audioCtx.createBuffer(numChannels, frameCount, sampleRate);
+
+            // fill channel data
+            for (let ch = 0; ch < numChannels; ch++) {
+                const channelData = audioBuffer.getChannelData(ch);
+                for (let i = 0; i < frameCount; i++) {
+                    // 16-bit little endian
+                    const idx = (i * numChannels + ch) * 2;
+                    const sample = (view[idx] | (view[idx+1] << 8));
+                    // signed int16 -> float (-1.0, 1.0)
+                    channelData[i] = sample < 32768 ? sample / 32768 : (sample - 65536) / 32768;
+                }
+            }
+
+            const source = audioCtx.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioCtx.destination);
+            source.start();
+        }
+    } catch(e) {
+        console.error("Audio fetch error:", e);
+    }
+    setTimeout(fetchAudio, 100); // poll ~10x per second
+}
+
+// start audio only after user gesture (browser policy)
+document.addEventListener("click", () => {
+    if (!playing) {
+        playing = true;
+        fetchAudio();
+    }
+});
+</script>
 {% endblock %}
 
 {% block body_attribs %}
@@ -56,6 +94,8 @@ class="homepage"
 	<div class="container fullwidth">
 		<div class="center fullwidth">
 			<img src="" class="livescreen fullwidth">
+            <!-- Hidden <audio> tag for browsers that need a media element -->
+            <audio id="audio" autoplay hidden></audio>
 		</div>
 	</div>
 </section>
