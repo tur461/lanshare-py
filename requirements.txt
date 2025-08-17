@@ -2,3 +2,4 @@ flask-bootstrap
 pyscreenshot
 pyopenssl
 pillow
+pyaudio

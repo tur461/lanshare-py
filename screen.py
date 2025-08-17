@@ -4,6 +4,7 @@
 
 import threading, time, base64, sys
 import pyaudio
+from collections import deque
 
 ver = sys.version_info.major
 if ver == 2:
@@ -44,15 +45,11 @@ class Screen:
             im_converted.save(
                 self.screenfile, format="jpeg", quality=75, progressive=True
             )
-            self.screenbuf = base64.b64encode(self.screenfile.getvalue())
+            self.screenbuf = base64.b64encode(self.screenfile.getvalue()).decode()
             time.sleep(1.0 / self.FPS)
 
     def gen(self):
-        if ver == 2:
-            return self.screenbuf
-        elif ver == 3:
-            return self.screenbuf.decode()
-
+        return self.screenbuf or ""
 
 class AudioCapture:
     def __init__(self):
@@ -61,7 +58,7 @@ class AudioCapture:
         self.FORMAT = pyaudio.paInt16
         self.CHANNELS = 2
         self.audio = pyaudio.PyAudio()
-        self.buffer = b""
+        self.que = deque(maxlen=200)
 
         self.device_index = None
         if sys.platform == "win32":
@@ -109,16 +106,18 @@ class AudioCapture:
         while self.running:
             try:
                 data = self.stream.read(self.CHUNK, exception_on_overflow=False)
-                self.buffer = base64.b64encode(data)
+                self.que.append(base64.b64encode(data))
             except Exception as e:
                 print("[AudioCapture] Error reading audio:", e)
                 time.sleep(0.05)
             time.sleep(0.01)
 
     def gen(self):
-        if isinstance(self.buffer, bytes):
-            return self.buffer.decode()
-        return self.buffer
+        chunks = []
+        while self.que:
+            chunk = self.que.popleft()
+            chunks.append(chunk.decode() if isinstance(chunk, bytes) else chunk)
+        return "".join(chunks) if chunks else ""
 
 
 # Instantiate both
