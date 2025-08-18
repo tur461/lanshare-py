@@ -5,18 +5,20 @@
 import threading, time, base64, sys
 import pyaudio
 from collections import deque
+import cv2, mss, io, numpy as np
 
 ver = sys.version_info.major
+print('Ver: ', ver)
 if ver == 2:
     import StringIO as io
 elif ver == 3:
     import io
 
-if sys.platform in ["win32", "darwin"]:
-    from PIL import ImageGrab as ig
-else:
-    import pyscreenshot as ig
-    bkend = "pygdk3"
+# if sys.platform in ["win32", "darwin"]:
+#     from PIL import ImageGrab as ig
+# else:
+#     import pyscreenshot as ig
+#     bkend = "pygdk3"
 
 
 class Screen:
@@ -34,19 +36,43 @@ class Screen:
         self.screenfile.close()
 
     def getframes(self):
-        while True:
-            if sys.platform in ["win32", "darwin"]:
-                im = ig.grab()
-            else:
-                im = ig.grab(childprocess=False, backend=bkend)
-            self.screenfile.seek(0)
-            self.screenfile.truncate(0)
-            im_converted = im.convert("RGB")
-            im_converted.save(
-                self.screenfile, format="jpeg", quality=75, progressive=True
-            )
-            self.screenbuf = base64.b64encode(self.screenfile.getvalue())
-            time.sleep(1.0 / self.FPS)
+        with mss.mss() as sct:
+            monitor = sct.monitors[1]  # primary screen
+            while True:
+                # Capture screenshot as NumPy array
+                screenshot = sct.grab(monitor)
+                frame = np.array(screenshot)  # BGRA
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+
+                # ---- REPLACEMENT of old PIL -> JPEG ----
+                success, encoded_image = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
+                if not success:
+                    continue
+
+                # Base64 encode like before
+                self.screenbuf = base64.b64encode(encoded_image.tobytes())
+
+                # (Optional) clear old buffer file references if you kept BytesIO
+                # self.screenfile.seek(0)
+                # self.screenfile.truncate(0)
+
+                # FPS cap
+                time.sleep(1.0 / self.FPS)
+
+    # def getframes(self):
+    #     while True:
+    #         if sys.platform in ["win32", "darwin"]:
+    #             im = ig.grab()
+    #         else:
+    #             im = ig.grab(childprocess=False, backend=bkend)
+    #         self.screenfile.seek(0)
+    #         self.screenfile.truncate(0)
+    #         im_converted = im.convert("RGB")
+    #         im_converted.save(
+    #             self.screenfile, format="jpeg", quality=75, progressive=True
+    #         )
+    #         self.screenbuf = base64.b64encode(self.screenfile.getvalue())
+    #         time.sleep(1.0 / self.FPS)
 
     def gen(self):
         if ver == 2:
